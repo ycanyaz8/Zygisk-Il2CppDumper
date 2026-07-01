@@ -12,6 +12,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-java@v3
+    ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true
       with:
         distribution: temurin
         java-version: 11
