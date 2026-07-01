@@ -15,26 +15,66 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 11
+          java-version: 17
           cache: gradle
 
-      - name: Build
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Grant permission
+        run: chmod +x ./gradlew
+
+      - name: Validate input + prepare variables
         run: |
-          chmod +x ./gradlew
+          PACKAGE="${{ github.event.inputs.package_name }}"
 
-          sed -i 's/moduleDescription = "/moduleDescription = "(${{ github.event.inputs.package_name }}) /g' module.gradle
-          sed -i "s/com.game.packagename/${{ github.event.inputs.package_name }}/g" module/src/main/cpp/game.h
+          if [ -z "$PACKAGE" ]; then
+            echo "ERROR: package_name boş"
+            exit 1
+          fi
 
-          ./gradlew :module:assembleRelease
+          echo "PACKAGE=$PACKAGE" >> $GITHUB_ENV
+
+      - name: Auto version bump
+        run: |
+          FILE="module.gradle"
+
+          if grep -q "versionCode" "$FILE"; then
+            CURRENT=$(grep versionCode "$FILE" | grep -o '[0-9]\+')
+            NEW=$((CURRENT + 1))
+            sed -i "s/versionCode $CURRENT/versionCode $NEW/g" "$FILE"
+            echo "New versionCode: $NEW"
+          fi
+
+      - name: Inject package name safely
+        run: |
+          sed -i "s/com.game.packagename/${PACKAGE}/g" module/src/main/cpp/game.h
+          sed -i "s/moduleDescription = \"/moduleDescription = \"(${PACKAGE}) /g" module.gradle
+
+      - name: Build release
+        run: |
+          ./gradlew :module:assembleRelease --no-daemon --stacktrace
+
+      - name: Upload build logs (if fail)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            **/build/reports/
+            **/build/logs/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: zygisk-il2cppdumper
-          path: out/magisk_module_release/
+          name: zygisk-il2cppdumper-${{ github.event.inputs.package_name }}
+          path: |
+            out/magisk_module_release/
+            module/build/outputs/
